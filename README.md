@@ -32,14 +32,14 @@ _bmad-output/
 The hook supports three enforcement modes, configured per-project in `_bmad/bmm/config.yaml`:
 
 ```yaml
-feature_hooks_mode: strict    # strict | advisory | off
+feature_hooks_mode: strict # strict | advisory | off
 ```
 
-| Mode | Behaviour |
-|------|-----------|
-| **strict** (default) | Blocks the skill (exit 2) until a feature is set |
-| **advisory** | Allows the skill but suggests setting a feature |
-| **off** | Silent pass-through, hooks installed but inactive |
+| Mode                 | Behaviour                                         |
+| -------------------- | ------------------------------------------------- |
+| **strict** (default) | Blocks the skill (exit 2) until a feature is set  |
+| **advisory**         | Allows the skill but suggests setting a feature   |
+| **off**              | Silent pass-through, hooks installed but inactive |
 
 The mode is version-controlled with your project — the whole team shares the same behaviour.
 
@@ -47,7 +47,6 @@ The mode is version-controlled with your project — the whole team shares the s
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI or IDE extension
 - [BMad Method](https://github.com/bmadcode/bmad-method) installed in your project (`_bmad/` directory with `config.yaml`)
-- `jq` (for the install script and hook input parsing)
 - `bash` 4+
 
 ## Installation
@@ -68,11 +67,13 @@ This creates or merges into your project's `.claude/settings.json` and adds `.ac
 ### Manual
 
 1. Clone this repo:
+
    ```bash
    git clone https://github.com/nocfer/bmad-feature-hooks.git ~/bmad-feature-hooks
    ```
 
 2. Add to your project's `.claude/settings.json` (see `settings.example.json`):
+
    ```json
    {
      "hooks": {
