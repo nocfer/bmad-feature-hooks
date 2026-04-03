@@ -8,24 +8,40 @@ When running BMad skills (PRD creation, architecture design, sprint planning, et
 
 ## Solution
 
-These hooks intercept BMad skill invocations via Claude Code's hook system:
+A PreToolUse hook intercepts artifact-producing BMad skill invocations and ensures a feature context is set. Feature state is stored in a local `.active-feature` file — never by modifying `config.yaml`.
 
-- **PreToolUse** (`check-bmad-feature.sh`): Before an artifact-producing BMad skill runs, checks if a feature context is set. If not, blocks the skill and prompts Claude to ask the user for a feature name.
-- **PostToolUse** (`restore-bmad-feature.sh`): After a BMad skill completes, reminds Claude to clear the feature context when the flow is done.
-- **Utility** (`bmad-set-feature.sh`): Sets, shows, or clears the active feature. Updates `planning_artifacts` and `implementation_artifacts` paths in the BMad config.
+- **PreToolUse** (`check-bmad-feature.sh`): Before a gated BMad skill runs, checks for an active feature. Auto-sets it when the git branch matches an existing feature folder. Outputs structured data so Claude can ask the user naturally when needed.
+- **Utility** (`bmad-set-feature.sh`): Sets, shows, lists, or clears the active feature.
 
 ### Directory structure with a feature set
 
 ```
 _bmad-output/
+  .active-feature          # Current feature name (gitignored)
   features/
     my-feature/
-      planning/        # PRDs, architecture docs, epics
-      implementation/  # Stories, generated code
+      planning/            # PRDs, architecture docs, epics
+      implementation/      # Stories, generated code
     another-feature/
       planning/
       implementation/
 ```
+
+## Enforcement Modes
+
+The hook supports three enforcement modes, configured per-project in `_bmad/bmm/config.yaml`:
+
+```yaml
+feature_hooks_mode: strict    # strict | advisory | off
+```
+
+| Mode | Behaviour |
+|------|-----------|
+| **strict** (default) | Blocks the skill (exit 2) until a feature is set |
+| **advisory** | Allows the skill but suggests setting a feature |
+| **off** | Silent pass-through, hooks installed but inactive |
+
+The mode is version-controlled with your project — the whole team shares the same behaviour.
 
 ## Requirements
 
@@ -47,7 +63,7 @@ git clone https://github.com/nocfer/bmad-feature-hooks.git ~/bmad-feature-hooks
 ~/bmad-feature-hooks/install.sh /path/to/your/project
 ```
 
-This creates or merges into your project's `.claude/settings.json` with absolute paths to the hooks.
+This creates or merges into your project's `.claude/settings.json` and adds `.active-feature` to `.gitignore`.
 
 ### Manual
 
@@ -56,7 +72,7 @@ This creates or merges into your project's `.claude/settings.json` with absolute
    git clone https://github.com/nocfer/bmad-feature-hooks.git ~/bmad-feature-hooks
    ```
 
-2. Add to your project's `.claude/settings.json` (see `settings.example.json` for the full structure):
+2. Add to your project's `.claude/settings.json` (see `settings.example.json`):
    ```json
    {
      "hooks": {
@@ -70,30 +86,21 @@ This creates or merges into your project's `.claude/settings.json` with absolute
              }
            ]
          }
-       ],
-       "PostToolUse": [
-         {
-           "matcher": "Skill",
-           "hooks": [
-             {
-               "type": "command",
-               "command": "~/bmad-feature-hooks/hooks/restore-bmad-feature.sh"
-             }
-           ]
-         }
        ]
      }
    }
    ```
 
+3. Add `_bmad-output/.active-feature` to your project's `.gitignore`.
+
 ## Usage
 
-The hooks work automatically once installed. When you invoke a gated BMad skill (e.g., `bmad-create-prd`), Claude will:
+The hooks work automatically once installed. When you invoke a gated BMad skill (e.g., `bmad-create-prd`):
 
-1. Be blocked by the PreToolUse hook if no feature is set
-2. Ask you to pick a feature name (suggesting one from your git branch)
-3. Set the feature context
-4. Retry the skill — artifacts now go to `_bmad-output/features/<name>/`
+1. If your git branch matches an existing feature folder — **auto-sets the feature, no prompt**
+2. If no match but features exist — Claude asks: "Which feature? (existing: x, y) Or new name."
+3. If no features exist — Claude suggests a name from your branch
+4. In advisory mode — Claude suggests but doesn't block
 
 You can also manage the feature context manually:
 
@@ -104,13 +111,16 @@ You can also manage the feature context manually:
 # Set a feature
 ! /path/to/bmad-feature-hooks/hooks/bmad-set-feature.sh my-feature
 
-# Clear (restore defaults)
+# List existing features
+! /path/to/bmad-feature-hooks/hooks/bmad-set-feature.sh --list
+
+# Clear active feature
 ! /path/to/bmad-feature-hooks/hooks/bmad-set-feature.sh --clear
 ```
 
 ### Gated skills
 
-The following BMad skills are gated (require a feature context):
+The following BMad skills require a feature context:
 
 - `bmad-create-prd`, `bmad-edit-prd`, `bmad-validate-prd`
 - `bmad-create-architecture`
@@ -127,9 +137,9 @@ All other BMad skills (research, brainstorming, agent conversations, reviews, et
 
 ## How it works
 
-The hooks read the BMad `config.yaml` in your project's `_bmad/` directory. When a feature is set, the `planning_artifacts` and `implementation_artifacts` paths are rewritten to point at `_bmad-output/features/<name>/planning` and `_bmad-output/features/<name>/implementation` respectively.
+The PreToolUse hook reads feature state from `_bmad-output/.active-feature` (a single-line file containing the feature name). When a feature is active, the hook tells Claude the artifact paths via structured stderr output. Claude uses these paths when running the skill. `config.yaml` is never modified.
 
-The hooks are codebase-agnostic — they auto-discover the config by searching for `config.yaml` files under `_bmad/` that contain a `planning_artifacts:` key.
+The hook auto-discovers the enforcement mode by reading `feature_hooks_mode` from `config.yaml` files under `_bmad/`.
 
 ## License
 

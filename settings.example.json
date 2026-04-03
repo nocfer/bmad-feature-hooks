@@ -10,17 +10,6 @@
           }
         ]
       }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Skill",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/absolute/path/to/bmad-feature-hooks/hooks/restore-bmad-feature.sh"
-          }
-        ]
-      }
     ]
   }
 }

@@ -19,13 +19,26 @@ fi
 
 mkdir -p "$PROJECT_DIR/.claude"
 
-# Build hook entries using absolute paths
+# Build hook entry using absolute path
 CHECK_HOOK="$HOOKS_DIR/check-bmad-feature.sh"
-RESTORE_HOOK="$HOOKS_DIR/restore-bmad-feature.sh"
 
-if [ ! -f "$CHECK_HOOK" ] || [ ! -f "$RESTORE_HOOK" ]; then
-  echo "Error: Hook scripts not found in $HOOKS_DIR" >&2
+if [ ! -f "$CHECK_HOOK" ]; then
+  echo "Error: Hook script not found: $CHECK_HOOK" >&2
   exit 1
+fi
+
+# Add .active-feature to project .gitignore if not already present
+GITIGNORE="$PROJECT_DIR/.gitignore"
+ACTIVE_PATTERN="_bmad-output/.active-feature"
+if [ -f "$GITIGNORE" ]; then
+  if ! grep -qF "$ACTIVE_PATTERN" "$GITIGNORE"; then
+    echo "" >> "$GITIGNORE"
+    echo "# BMad feature hooks session state" >> "$GITIGNORE"
+    echo "$ACTIVE_PATTERN" >> "$GITIGNORE"
+  fi
+else
+  echo "# BMad feature hooks session state" > "$GITIGNORE"
+  echo "$ACTIVE_PATTERN" >> "$GITIGNORE"
 fi
 
 if [ -f "$SETTINGS_FILE" ]; then
@@ -40,19 +53,14 @@ if [ -f "$SETTINGS_FILE" ]; then
   fi
 
   TEMP=$(mktemp)
-  jq --arg check "$CHECK_HOOK" --arg restore "$RESTORE_HOOK" '
-    .hooks.PreToolUse = ((.hooks.PreToolUse // []) + [{
-      "matcher": "Skill",
-      "hooks": [{"type": "command", "command": $check}]
-    }] | unique_by(.matcher + (.hooks | tostring)))
-    |
-    .hooks.PostToolUse = ((.hooks.PostToolUse // []) + [{
-      "matcher": "Skill",
-      "hooks": [{"type": "command", "command": $restore}]
-    }] | unique_by(.matcher + (.hooks | tostring)))
+  jq --arg check "$CHECK_HOOK" '
+    .hooks.PreToolUse = [
+      ((.hooks.PreToolUse // []) | map(select(.matcher != "Skill")))[],
+      {"matcher": "Skill", "hooks": [{"type": "command", "command": $check}]}
+    ]
   ' "$SETTINGS_FILE" > "$TEMP" && mv "$TEMP" "$SETTINGS_FILE"
 else
-  cat > "$SETTINGS_FILE" <<EOF
+  cat > "$SETTINGS_FILE" <<'SETTINGS_EOF'
 {
   "hooks": {
     "PreToolUse": [
@@ -61,31 +69,24 @@ else
         "hooks": [
           {
             "type": "command",
-            "command": "$CHECK_HOOK"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Skill",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$RESTORE_HOOK"
+            "command": "BMAD_CHECK_HOOK_PLACEHOLDER"
           }
         ]
       }
     ]
   }
 }
-EOF
+SETTINGS_EOF
+  # Replace placeholder with actual path (handles spaces safely)
+  TEMP=$(mktemp)
+  jq --arg check "$CHECK_HOOK" '
+    .hooks.PreToolUse[0].hooks[0].command = $check
+  ' "$SETTINGS_FILE" > "$TEMP" && mv "$TEMP" "$SETTINGS_FILE"
 fi
 
 echo ""
 echo "BMad feature hooks installed successfully!"
 echo ""
-echo "  PreToolUse  -> $CHECK_HOOK"
-echo "  PostToolUse -> $RESTORE_HOOK"
+echo "  PreToolUse -> $CHECK_HOOK"
 echo ""
 echo "Settings written to: $SETTINGS_FILE"

@@ -1,81 +1,97 @@
 #!/bin/bash
 # BMad feature context manager — codebase agnostic.
-# Finds the BMad config that owns planning_artifacts automatically.
+# Manages feature state via a local .active-feature file.
+# Never modifies config.yaml.
 #
-# Called by Claude automatically via hooks. Can also be used manually:
-#   ! /path/to/bmad-set-feature.sh <feature-name>   # Set active feature
-#   ! /path/to/bmad-set-feature.sh                   # Show current feature
-#   ! /path/to/bmad-set-feature.sh --clear            # Reset to defaults
+# Usage:
+#   bmad-set-feature.sh                  # Show current feature
+#   bmad-set-feature.sh <feature-name>   # Set active feature
+#   bmad-set-feature.sh --clear          # Clear active feature
+#   bmad-set-feature.sh --list           # List existing features
 
 set -uo pipefail
 
-# Resolve project root: use CLAUDE_PROJECT_DIR if available, otherwise cwd
+# Resolve project root
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+OUTPUT_DIR="$PROJECT_ROOT/_bmad-output"
+ACTIVE_FILE="$OUTPUT_DIR/.active-feature"
+FEATURES_DIR="$OUTPUT_DIR/features"
 
-# Find the config that owns planning_artifacts
-CONFIG=""
-for f in $(find "$PROJECT_ROOT/_bmad" -name "config.yaml" -maxdepth 2 2>/dev/null); do
-  if grep -q '^planning_artifacts:' "$f" 2>/dev/null; then
-    CONFIG="$f"
-    break
+# Get current active feature (empty string if none)
+get_active() {
+  if [ -f "$ACTIVE_FILE" ]; then
+    head -1 "$ACTIVE_FILE"
   fi
-done
-
-if [ -z "$CONFIG" ]; then
-  echo "Error: No BMad config.yaml with planning_artifacts found under _bmad/" >&2
-  exit 1
-fi
+}
 
 if [ -z "${1:-}" ]; then
   # No args: show current feature
-  PLANNING=$(grep '^planning_artifacts:' "$CONFIG")
-  if echo "$PLANNING" | grep -q '/features/'; then
-    FEATURE=$(echo "$PLANNING" | sed 's|.*features/\([^/]*\)/.*|\1|')
-    echo "Active feature: $FEATURE"
+  ACTIVE=$(get_active)
+  if [ -n "$ACTIVE" ]; then
+    echo "Active feature: $ACTIVE"
   else
     echo "No feature set (using default paths)"
   fi
   exit 0
 fi
 
-FEATURE="$1"
+case "$1" in
+  --clear)
+    if [ -f "$ACTIVE_FILE" ]; then
+      if ! rm "$ACTIVE_FILE"; then
+        echo "Error: Failed to remove $ACTIVE_FILE" >&2
+        exit 1
+      fi
+    fi
+    echo "BMad feature cleared. Using default output paths."
+    exit 0
+    ;;
 
-if [ "$FEATURE" = "--clear" ]; then
-  # Cross-platform sed: detect GNU vs BSD
-  if sed --version 2>/dev/null | grep -q GNU; then
-    sed -i \
-      -e 's|planning_artifacts:.*|planning_artifacts: "{project-root}/_bmad-output/planning-artifacts"|' \
-      -e 's|implementation_artifacts:.*|implementation_artifacts: "{project-root}/_bmad-output/implementation-artifacts"|' \
-      "$CONFIG"
-  else
-    sed -i '' \
-      -e 's|planning_artifacts:.*|planning_artifacts: "{project-root}/_bmad-output/planning-artifacts"|' \
-      -e 's|implementation_artifacts:.*|implementation_artifacts: "{project-root}/_bmad-output/implementation-artifacts"|' \
-      "$CONFIG"
-  fi
-  echo "BMad feature cleared. Using default output paths."
-  exit 0
-fi
+  --list)
+    ACTIVE=$(get_active)
+    if [ ! -d "$FEATURES_DIR" ] || [ -z "$(ls -A "$FEATURES_DIR" 2>/dev/null)" ]; then
+      echo "No features found."
+      exit 0
+    fi
+    for dir in "$FEATURES_DIR"/*/; do
+      [ -d "$dir" ] || continue
+      NAME=$(basename "$dir")
+      if [ "$NAME" = "$ACTIVE" ]; then
+        echo "* $NAME        (active)"
+      else
+        echo "  $NAME"
+      fi
+    done
+    exit 0
+    ;;
 
-# Validate feature name
-if ! echo "$FEATURE" | grep -qE '^[a-zA-Z0-9_-]+$'; then
-  echo "Error: Feature name must contain only letters, numbers, hyphens, and underscores" >&2
-  exit 1
-fi
+  --*)
+    echo "Error: Unknown option '$1'" >&2
+    echo "Usage: bmad-set-feature.sh [<feature-name> | --clear | --list]" >&2
+    exit 1
+    ;;
 
-# Cross-platform sed
-if sed --version 2>/dev/null | grep -q GNU; then
-  sed -i \
-    -e "s|planning_artifacts:.*|planning_artifacts: \"{project-root}/_bmad-output/features/${FEATURE}/planning\"|" \
-    -e "s|implementation_artifacts:.*|implementation_artifacts: \"{project-root}/_bmad-output/features/${FEATURE}/implementation\"|" \
-    "$CONFIG"
-else
-  sed -i '' \
-    -e "s|planning_artifacts:.*|planning_artifacts: \"{project-root}/_bmad-output/features/${FEATURE}/planning\"|" \
-    -e "s|implementation_artifacts:.*|implementation_artifacts: \"{project-root}/_bmad-output/features/${FEATURE}/implementation\"|" \
-    "$CONFIG"
-fi
+  *)
+    FEATURE="$1"
 
-echo "BMad feature set to: $FEATURE"
-echo "  Planning:       _bmad-output/features/$FEATURE/planning/"
-echo "  Implementation: _bmad-output/features/$FEATURE/implementation/"
+    # Validate feature name (lowercase alphanumeric, hyphens, underscores only)
+    if ! echo "$FEATURE" | grep -qE '^[a-z0-9_-]+$'; then
+      echo "Error: Feature name must contain only lowercase letters, numbers, hyphens, and underscores" >&2
+      exit 1
+    fi
+
+    # Ensure output directory exists
+    if ! mkdir -p "$OUTPUT_DIR"; then
+      echo "Error: Failed to create output directory $OUTPUT_DIR" >&2
+      exit 1
+    fi
+
+    # Write feature to state file
+    echo "$FEATURE" > "$ACTIVE_FILE"
+
+    echo "BMad feature set to: $FEATURE"
+    echo "  Planning:       _bmad-output/features/$FEATURE/planning/"
+    echo "  Implementation: _bmad-output/features/$FEATURE/implementation/"
+    exit 0
+    ;;
+esac
