@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/absolute/path/to/bmad-feature-hooks/hooks/check-bmad-feature.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/absolute/path/to/bmad-feature-hooks/hooks/restore-bmad-feature.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
